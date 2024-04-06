@@ -19,6 +19,7 @@
     "@remix-run/react": "^2.8.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
+    "fix-webm-duration": "^1.0.5",
     "isbot": "^4.1.0",
     "lucide-react": "^0.365.0",
     "miniflare": "^3.20231030.4",
