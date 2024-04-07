@@ -1,0 +1,9 @@
+name = "simple-loom"
+compatibility_date = "2024-04-07"
+compatibility_flags = [ "nodejs_compat" ]
+pages_build_output_dir = "./build/client"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "simple-loom-storage"
+preview_bucket_name = "preview-simple-loom-storage"

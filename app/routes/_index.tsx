@@ -2,6 +2,15 @@ import type { MetaFunction } from "@remix-run/cloudflare";
 import { useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
+import { patchBlob } from "~/lib/utils/blob";
+import {
+  ActionFunctionArgs,
+  json,
+  redirect,
+  unstable_parseMultipartFormData,
+} from "@remix-run/cloudflare";
+import { uploadToR2 } from "~/lib/utils/r2.server";
+import { useSubmit } from "@remix-run/react";
 
 export const meta: MetaFunction = () => {
   return [
@@ -23,6 +32,7 @@ export default function Index() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawingFrame, setIsDrawingFrame] = useState(false);
   const [isRecordingStopped, setIsRecordingStopped] = useState(true);
+  const submit = useSubmit();
 
   async function onStartRecording() {
     if (
@@ -71,8 +81,15 @@ export default function Index() {
     }
 
     const recording = e.data;
+    const patchedBlob = await patchBlob(
+      recording,
+      Date.now() - recordingStartedAt
+    );
 
-    await uploadBlob(recording);
+    const formData = new FormData();
+    formData.set("video", patchedBlob);
+
+    submit(formData, { method: "POST", encType: "multipart/form-data" });
 
     drawnFrame = null;
     recordingStartedAt = null;
@@ -308,6 +325,19 @@ function drawCircle(
 
 const WEBCAM_PADDING = 24;
 
-async function uploadBlob(blob: Blob) { }
-
 const FPS = 30;
+
+export async function action({ request, context }: ActionFunctionArgs) {
+  const formData = await unstable_parseMultipartFormData(
+    request,
+    uploadToR2(context.cloudflare.env)
+  );
+
+  const url = formData.get("video");
+
+  if (url && typeof url === "string") {
+    return redirect(url);
+  }
+
+  return null;
+}
