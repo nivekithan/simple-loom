@@ -8,6 +8,7 @@ import { type PlatformProxy } from "wrangler";
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 interface Env {
   BUCKET: R2Bucket;
+  UPLOAD_TO_R2: string;
 }
 
 type Cloudflare = Omit<PlatformProxy<Env>, "dispose">;

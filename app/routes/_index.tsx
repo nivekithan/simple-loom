@@ -1,4 +1,4 @@
-import type { MetaFunction } from "@remix-run/cloudflare";
+import type { LoaderFunctionArgs, MetaFunction } from "@remix-run/cloudflare";
 import { useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
@@ -10,7 +10,7 @@ import {
   unstable_parseMultipartFormData,
 } from "@remix-run/cloudflare";
 import { uploadToR2 } from "~/lib/utils/r2.server";
-import { useSubmit } from "@remix-run/react";
+import { useLoaderData, useSubmit } from "@remix-run/react";
 
 export const meta: MetaFunction = () => {
   return [
@@ -22,19 +22,42 @@ export const meta: MetaFunction = () => {
   ];
 };
 
+export async function loader({ context }: LoaderFunctionArgs) {
+  const env = context.cloudflare.env;
+
+  return json({ uploadToR2: env.UPLOAD_TO_R2 === "true" });
+}
+
 let mediaRecorder: MediaRecorder | null = null;
-let drawnFrame: number | null = null;
 let recordingStartedAt: number | null = null;
 
 export default function Index() {
+  const { uploadToR2 } = useLoaderData<typeof loader>();
   const screenShareVideoRef = useRef<HTMLVideoElement | null>(null);
   const webcamVideoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawingFrame, setIsDrawingFrame] = useState(false);
   const [isRecordingStopped, setIsRecordingStopped] = useState(true);
   const submit = useSubmit();
+  const workerRef = useRef<Worker | null>(null);
 
   async function onStartRecording() {
+    const worker = new Worker(
+      new URL("../workers/timer.ts", import.meta.url).toString()
+    );
+
+    workerRef.current = worker;
+
+    worker.onmessage = function(e) {
+      if (e.data === "tick") {
+        console.log({ isRecordingStopped });
+        drawFrameByFrame();
+        console.log("Tcik");
+      } else {
+        console.log(e);
+      }
+    };
+
     if (
       !canvasRef.current ||
       !screenShareVideoRef.current ||
@@ -68,10 +91,12 @@ export default function Index() {
 
     mediaRecorder.ondataavailable = onRecordingAvaliable;
 
-    mediaRecorder.start();
-    recordingStartedAt = Date.now();
-
     setIsRecordingStopped(false);
+    console.log("After settings recording");
+    console.log({ isRecordingStopped });
+    recordingStartedAt = Date.now();
+    mediaRecorder.start();
+    worker.postMessage({ command: "start" });
   }
 
   async function onRecordingAvaliable(e: BlobEvent) {
@@ -86,12 +111,15 @@ export default function Index() {
       Date.now() - recordingStartedAt
     );
 
-    const formData = new FormData();
-    formData.set("video", patchedBlob);
+    if (uploadToR2) {
+      const formData = new FormData();
+      formData.set("video", patchedBlob);
 
-    submit(formData, { method: "POST", encType: "multipart/form-data" });
-
-    drawnFrame = null;
+      submit(formData, { method: "POST", encType: "multipart/form-data" });
+    } else {
+      const url = URL.createObjectURL(patchedBlob);
+      window.open(url);
+    }
     recordingStartedAt = null;
   }
 
@@ -103,6 +131,7 @@ export default function Index() {
     }
 
     mediaRecorder.stop();
+    workerRef.current?.postMessage({ command: "stop" });
 
     console.log("calling Media Recorder is stopped");
     setIsRecordingStopped(true);
@@ -110,28 +139,12 @@ export default function Index() {
   }
 
   function drawFrameByFrame() {
-    // If recording stopped then stop drawing
-    if (isRecordingStopped) {
-      return;
-    }
-
     if (
       !canvasRef.current ||
       !screenShareVideoRef.current ||
       !webcamVideoRef.current
     ) {
-      return;
-    }
-
-    const desiredFrameTime = 1000 / FPS;
-
-    const elapsedTime = Date.now() - (drawnFrame ?? Date.now());
-
-    const isTimeForNextFrame =
-      elapsedTime >= desiredFrameTime || drawnFrame === null;
-
-    if (!isTimeForNextFrame) {
-      requestAnimationFrame(drawFrameByFrame);
+      console.log("Canvas or Video or webcam is null");
       return;
     }
 
@@ -141,13 +154,14 @@ export default function Index() {
 
     const ctx = canvasEle.getContext("2d");
     if (!ctx) {
+      console.log("Canvas context is null");
       return;
     }
 
+    console.log("Drawing Screenshare");
     drawScreenShare({ videoEle: screenShareVideoEle, ctx });
     drawWebcam({ ctx, canvasEle, videoEle: webcamVideoEle });
-    drawnFrame = Date.now();
-    requestAnimationFrame(drawFrameByFrame);
+    console.log("Finished Drawing Screenshare");
   }
 
   function onScreenShareStreamPlay() {
@@ -167,7 +181,6 @@ export default function Index() {
 
     if (!isDrawingFrame) {
       setIsDrawingFrame(true);
-      requestAnimationFrame(drawFrameByFrame);
     }
   }
 

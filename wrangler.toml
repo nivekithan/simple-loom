@@ -7,3 +7,6 @@ pages_build_output_dir = "./build/client"
 binding = "BUCKET"
 bucket_name = "simple-loom-storage"
 preview_bucket_name = "preview-simple-loom-storage"
+
+
+
